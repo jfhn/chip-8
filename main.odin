@@ -11,6 +11,15 @@ MEMORY_SIZE :: 4 * 1024
 screen_buffer: [SCREEN_WIDTH * SCREEN_HEIGHT]rl.Color
 memory: [MEMORY_SIZE]u8
 
+Register :: enum {
+	V0, V1, V2, V3,
+	V4, V5, V6, V7,
+	V8, V9, VA, VB,
+	VC, VD, VE, VF,
+}
+
+Instruction :: [2]u8
+
 main :: proc() {
 	// Init screen buffer
 	for y := 0; y < SCREEN_HEIGHT; y += 1 {
