@@ -9,7 +9,7 @@ PIXEL_SCALE :: 16
 MEMORY_SIZE :: 4 * 1024
 
 screen_buffer: [SCREEN_WIDTH * SCREEN_HEIGHT]rl.Color
-memory: [MEMORY_SIZE]i32
+memory: [MEMORY_SIZE]u8
 
 main :: proc() {
 	// Init screen buffer
