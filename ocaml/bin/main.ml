@@ -15,6 +15,10 @@ module Instruction = struct
     | Skip_if_reg_eq of int * int (** SE 5xy0: if Vx = Vy then PC += 2 *)
 end
 
+module Tuple = struct
+  let map ~(f : 'a -> 'b) : 'a * 'a -> 'b * 'b = fun (x, y) -> f x, f y
+end
+
 type config = { pixel_scale : int }
 
 let config = { pixel_scale = 8 }
@@ -55,7 +59,10 @@ let setup () : state =
 ;;
 
 (** *)
-let fetch (_memory : memory) : Instruction.encoded = 0, 0xE0
+let fetch state : Instruction.encoded =
+  let pc = !(state.pc) in
+  Tuple.map ~f:Char.to_int (state.memory.(pc), state.memory.(pc + 1))
+;;
 
 let decode : Instruction.encoded -> Instruction.decoded = function
   | 0, 0xE0 -> Clear_Screen
@@ -77,7 +84,7 @@ let decode : Instruction.encoded -> Instruction.decoded = function
     let register1 = Int.bit_and high 0x0F in
     let register2 = Int.bit_and low 0xF0 in
     Skip_if_reg_eq (register1, register2)
-  | _ -> failwith "unknown instruction"
+  | high, low -> Printf.sprintf "unknown instruction: 0x%02x%02x\n" high low |> failwith
 ;;
 
 (** Simulates one instruction and updates the state *)
@@ -128,12 +135,22 @@ let draw state : unit =
 
 (** *)
 let run state : unit =
-  let instruction = state.memory |> fetch |> decode in
+  let instruction = state |> fetch |> decode in
   execute state instruction
+;;
+
+let load_example state : unit =
+  let c = Char.of_int_exn in
+  let p = !(state.pc) in
+  state.memory.(p + 0) <- c 0;
+  state.memory.(p + 1) <- c 0xE0;
+  state.memory.(p + 2) <- c 0;
+  state.memory.(p + 3) <- c 0xEE
 ;;
 
 let () =
   let state = setup () in
+  load_example state;
   let open Raylib in
   init_window 800 600 "CHIP-8";
   set_target_fps 60;
