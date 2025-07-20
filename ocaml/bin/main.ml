@@ -9,8 +9,8 @@ module Instruction = struct
     | Clear_Screen (** Clears the screen *)
     | Return (** PC = top stack *)
     | Jump of int (** PC = given address *)
+    | Call of int (** ++SP = PC, PC = given address *)
   (*
-     | Call of int (** ++SP = PC, PC = given address *)
      | Skip_if_val_eq of int (** PC += 2 if equal *)
      | Skip_if_val_neq of int (** PC += 2 if not equal *)
      | Skip_if_reg_eq of int (** PC += 2 if equal *)
@@ -64,6 +64,9 @@ let decode : Instruction.encoded -> Instruction.decoded = function
   | high, low when Int.bit_and high 0x10 = 0x10 ->
     let address = (Int.bit_and high 0x0F |> Fn.flip Int.shift_left 2) + low in
     Jump address
+  | high, low when Int.bit_and high 0x20 = 0x20 ->
+    let address = (Int.bit_and high 0x0F |> Fn.flip Int.shift_left 2) + low in
+    Call address
   | _ -> failwith "unknown instruction"
 ;;
 
@@ -82,6 +85,9 @@ let execute state : Instruction.decoded -> unit = function
        state.stack := stack
      | [] -> failwith "internal error: return from empty stack")
   | Jump address -> state.pc := address
+  | Call address ->
+    state.stack := !(state.pc) :: !(state.stack);
+    state.pc := address
 ;;
 
 (** *)
