@@ -1,11 +1,16 @@
 open Base
 
+exception Invalid
+exception Halt
+
 (** *)
 module Instruction = struct
   type encoded = int * int
 
   (** *)
   type decoded =
+    | Invalid (* TODO: Not an actual instruction *)
+    | Halt (* TODO: Not an actual instruction *)
     | Clear_Screen (** Clears the screen *)
     | Return (** PC = top stack *)
     | Jump of int (** PC = given address *)
@@ -13,6 +18,20 @@ module Instruction = struct
     | Skip_if_val_eq of int * int (** SE 3xkk: if Vx = kk then PC += 2 *)
     | Skip_if_val_neq of int * int (** SNE 4xkk: if Vx <> kk then PC += 2 *)
     | Skip_if_reg_eq of int * int (** SE 5xy0: if Vx = Vy then PC += 2 *)
+
+  let show : decoded -> string = 
+    let open Printf in
+    function
+    | Invalid -> "INVALID"
+    | Halt -> "HALT"
+    | Clear_Screen -> "CLS"
+    | Return -> "RET"
+    | Jump address -> sprintf "JUMP %03x" address
+    | Call address -> sprintf "JUMP %03x" address
+    | Skip_if_val_eq (register, value) -> sprintf "SE %x %02x" register value
+    | Skip_if_val_neq (register, value) -> sprintf "SNE %x %02x" register value
+    | Skip_if_reg_eq (register1, register2) -> sprintf "SNE %x %x" register1 register2
+  ;;
 end
 
 module Tuple = struct
@@ -65,6 +84,8 @@ let fetch state : Instruction.encoded =
 ;;
 
 let decode : Instruction.encoded -> Instruction.decoded = function
+  | 0, 0 -> Invalid
+  | 0, 1 -> Halt
   | 0, 0xE0 -> Clear_Screen
   | 0, 0xEE -> Return
   | high, low when Int.bit_and high 0x10 = 0x10 ->
@@ -88,7 +109,11 @@ let decode : Instruction.encoded -> Instruction.decoded = function
 ;;
 
 (** Simulates one instruction and updates the state *)
-let execute state : Instruction.decoded -> unit = function
+let execute state : Instruction.decoded -> unit = fun instruction ->
+  Stdio.printf "execute %s\n" (Instruction.show instruction);
+  match instruction with
+  | Invalid -> raise Invalid
+  | Halt -> raise Halt
   | Clear_Screen ->
     let len = facts.width * facts.height in
     for i = 0 to len - 1 do
@@ -140,12 +165,21 @@ let run state : unit =
 ;;
 
 let load_example state : unit =
-  let c = Char.of_int_exn in
-  let p = !(state.pc) in
-  state.memory.(p + 0) <- c 0;
-  state.memory.(p + 1) <- c 0xE0;
-  state.memory.(p + 2) <- c 0;
-  state.memory.(p + 3) <- c 0xEE
+  let ch = Char.of_int_exn in
+  let pc = !(state.pc) in
+  state.memory.(pc + 0) <- ch 0; (* CLS *)
+  state.memory.(pc + 1) <- ch 0xE0;
+  state.memory.(pc + 2) <- ch 0x12; (* JUMP 0x204 *)
+  state.memory.(pc + 3) <- ch 0x04;
+  state.memory.(pc + 4) <- ch 0; (* HALT *)
+  state.memory.(pc + 5) <- ch 1;
+  Stdio.printf "%02x%02x%02x%02x%02x%02x\n"
+    (Char.to_int state.memory.(pc + 0))
+    (Char.to_int state.memory.(pc + 1))
+    (Char.to_int state.memory.(pc + 2))
+    (Char.to_int state.memory.(pc + 3))
+    (Char.to_int state.memory.(pc + 4))
+    (Char.to_int state.memory.(pc + 5))
 ;;
 
 let () =
