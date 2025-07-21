@@ -89,10 +89,11 @@ let decode : Instruction.encoded -> Instruction.decoded = function
   | 0, 0xE0 -> Clear_Screen
   | 0, 0xEE -> Return
   | high, low when Int.bit_and high 0x10 = 0x10 ->
-    let address = (Int.bit_and high 0x0F |> Fn.flip Int.shift_left 2) + low in
+    (* TODO: Simplify and remove Fn.flip *)
+    let address = (Int.bit_and high 0x0F |> Fn.flip Int.shift_left 8) + low in
     Jump address
   | high, low when Int.bit_and high 0x20 = 0x20 ->
-    let address = (Int.bit_and high 0x0F |> Fn.flip Int.shift_left 2) + low in
+    let address = (Int.bit_and high 0x0F |> Fn.flip Int.shift_left 8) + low in
     Call address
   | high, low when Int.bit_and high 0x30 = 0x30 ->
     let register = Int.bit_and high 0x0F in
@@ -119,7 +120,7 @@ let execute state : Instruction.decoded -> unit = fun instruction ->
     for i = 0 to len - 1 do
       state.screen.(i) <- facts.background_color
     done;
-    state.pc := !(state.pc) + 1
+    state.pc := !(state.pc) + 2
   | Return ->
     (match !(state.stack) with
      | address :: stack ->
@@ -131,14 +132,14 @@ let execute state : Instruction.decoded -> unit = fun instruction ->
     state.stack := !(state.pc) :: !(state.stack);
     state.pc := address
   | Skip_if_val_eq (register, value) ->
-    let increment = if state.registers.(register) = value then 2 else 1 in
+    let increment = if state.registers.(register) = value then 4 else 2 in
     state.pc := !(state.pc) + increment
   | Skip_if_val_neq (register, value) ->
-    let increment = if state.registers.(register) <> value then 2 else 1 in
+    let increment = if state.registers.(register) <> value then 4 else 2 in
     state.pc := !(state.pc) + increment
   | Skip_if_reg_eq (register1, register2) ->
     let increment =
-      if state.registers.(register1) <> state.registers.(register2) then 2 else 1
+      if state.registers.(register1) <> state.registers.(register2) then 4 else 2
     in
     state.pc := !(state.pc) + increment
 ;;
