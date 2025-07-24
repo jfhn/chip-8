@@ -21,8 +21,11 @@ module Instruction = struct
     | Put_val_in_reg of int * int (** LD 6xkk: Vx = kk *)
     | Add_val_to_reg of int * int (** ADD 7xkk: Vx = Vx + kk *)
     | Put_reg_in_reg of int * int (** LD 8xy0: Vx = Vy *)
+    | Or_reg_with_reg of int * int (** OR 8xy1: Vx OR Vy *)
+    | And_reg_with_reg of int * int (** AND 8xy2: Vx AND Vy *)
+    | Xor_reg_with_reg of int * int (** XOR 8xy3: Vx XOR Vy *)
 
-  let show : decoded -> string = 
+  let show : decoded -> string =
     let open Printf in
     function
     | Invalid -> "INVALID"
@@ -37,6 +40,9 @@ module Instruction = struct
     | Put_val_in_reg (register, value) -> sprintf "LD V%x %02x" register value
     | Add_val_to_reg (register, value) -> sprintf "ADD V%x %02x" register value
     | Put_reg_in_reg (register1, register2) -> sprintf "LD V%x V%x" register1 register2
+    | Or_reg_with_reg (register1, register2) -> sprintf "OR V%x V%x" register1 register2
+    | And_reg_with_reg (register1, register2) -> sprintf "AND V%x V%x" register1 register2
+    | Xor_reg_with_reg (register1, register2) -> sprintf "XOR V%x V%x" register1 register2
   ;;
 end
 
@@ -82,15 +88,18 @@ let setup () : state =
 let ( << ) = Int.shift_left
 let ( >> ) = Int.shift_right
 let ( &: ) = Int.bit_and
+let ( |: ) = Int.bit_or
+let ( ^: ) = Int.bit_xor
 
 (** *)
 let fetch state : Instruction.encoded =
   let pc = !(state.pc) in
-  let high = (Char.to_int state.memory.(pc)) << 8 in
+  let high = Char.to_int state.memory.(pc) << 8 in
   let low = Char.to_int state.memory.(pc + 1) in
   high + low
 ;;
 
+(* TODO: Factorize register and value fetching *)
 let decode : Instruction.encoded -> Instruction.decoded = function
   | 0x0000 -> Invalid
   | 0x0001 -> Halt
@@ -128,11 +137,24 @@ let decode : Instruction.encoded -> Instruction.decoded = function
     let register1 = code &: 0x0F00 >> 8 in
     let register2 = code &: 0x00F0 >> 4 in
     Put_reg_in_reg (register1, register2)
+  | code when code &: 0x8001 = 0x8001 ->
+    let register1 = code &: 0x0F00 >> 8 in
+    let register2 = code &: 0x00F0 >> 4 in
+    Or_reg_with_reg (register1, register2)
+  | code when code &: 0x8002 = 0x8002 ->
+    let register1 = code &: 0x0F00 >> 8 in
+    let register2 = code &: 0x00F0 >> 4 in
+    And_reg_with_reg (register1, register2)
+  | code when code &: 0x8003 = 0x8003 ->
+    let register1 = code &: 0x0F00 >> 8 in
+    let register2 = code &: 0x00F0 >> 4 in
+    Xor_reg_with_reg (register1, register2)
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
 (** Simulates one instruction and updates the state *)
-let execute state : Instruction.decoded -> unit = fun instruction ->
+let execute state : Instruction.decoded -> unit =
+  fun instruction ->
   Stdio.printf "execute %s\n" (Instruction.show instruction);
   match instruction with
   | Invalid -> raise Invalid
@@ -173,6 +195,18 @@ let execute state : Instruction.decoded -> unit = fun instruction ->
   | Put_reg_in_reg (register1, register2) ->
     state.registers.(register1) <- state.registers.(register2);
     state.pc := !(state.pc) + 2
+  | Or_reg_with_reg (register1, register2) ->
+    state.registers.(register1)
+    <- state.registers.(register1) |: state.registers.(register2);
+    state.pc := !(state.pc) + 2
+  | And_reg_with_reg (register1, register2) ->
+    state.registers.(register1)
+    <- state.registers.(register1) &: state.registers.(register2);
+    state.pc := !(state.pc) + 2
+  | Xor_reg_with_reg (register1, register2) ->
+    state.registers.(register1)
+    <- state.registers.(register1) ^: state.registers.(register2);
+    state.pc := !(state.pc) + 2
 ;;
 
 (** *)
@@ -199,13 +233,17 @@ let run state : unit =
 let load_example state : unit =
   let ch = Char.of_int_exn in
   let pc = !(state.pc) in
-  state.memory.(pc + 0) <- ch 0; (* CLS *)
+  state.memory.(pc + 0) <- ch 0;
+  (* CLS *)
   state.memory.(pc + 1) <- ch 0xE0;
-  state.memory.(pc + 2) <- ch 0x12; (* JUMP 0x204 *)
+  state.memory.(pc + 2) <- ch 0x12;
+  (* JUMP 0x204 *)
   state.memory.(pc + 3) <- ch 0x04;
-  state.memory.(pc + 4) <- ch 0; (* HALT *)
+  state.memory.(pc + 4) <- ch 0;
+  (* HALT *)
   state.memory.(pc + 5) <- ch 1;
-  Stdio.printf "%02x%02x%02x%02x%02x%02x\n"
+  Stdio.printf
+    "%02x%02x%02x%02x%02x%02x\n"
     (Char.to_int state.memory.(pc + 0))
     (Char.to_int state.memory.(pc + 1))
     (Char.to_int state.memory.(pc + 2))
