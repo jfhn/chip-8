@@ -34,15 +34,15 @@ module Instruction = struct
     | Return -> "RET"
     | Jump address -> sprintf "JUMP %03x" address
     | Call address -> sprintf "JUMP %03x" address
-    | Skip_if_val_eq (register, value) -> sprintf "SE %x %02x" register value
-    | Skip_if_val_neq (register, value) -> sprintf "SNE %x %02x" register value
-    | Skip_if_reg_eq (register1, register2) -> sprintf "SNE %x %x" register1 register2
-    | Put_val_in_reg (register, value) -> sprintf "LD V%x %02x" register value
-    | Add_val_to_reg (register, value) -> sprintf "ADD V%x %02x" register value
-    | Put_reg_in_reg (register1, register2) -> sprintf "LD V%x V%x" register1 register2
-    | Or_reg_with_reg (register1, register2) -> sprintf "OR V%x V%x" register1 register2
-    | And_reg_with_reg (register1, register2) -> sprintf "AND V%x V%x" register1 register2
-    | Xor_reg_with_reg (register1, register2) -> sprintf "XOR V%x V%x" register1 register2
+    | Skip_if_val_eq (vx, v) -> sprintf "SE %x %02x" vx v
+    | Skip_if_val_neq (vx, v) -> sprintf "SNE %x %02x" vx v
+    | Skip_if_reg_eq (vx, vy) -> sprintf "SNE %x %x" vx vy
+    | Put_val_in_reg (vx, v) -> sprintf "LD V%x %02x" vx v
+    | Add_val_to_reg (vx, v) -> sprintf "ADD V%x %02x" vx v
+    | Put_reg_in_reg (vx, vy) -> sprintf "LD V%x V%x" vx vy
+    | Or_reg_with_reg (vx, vy) -> sprintf "OR V%x V%x" vx vy
+    | And_reg_with_reg (vx, vy) -> sprintf "AND V%x V%x" vx vy
+    | Xor_reg_with_reg (vx, vy) -> sprintf "XOR V%x V%x" vx vy
   ;;
 end
 
@@ -99,56 +99,31 @@ let fetch state : Instruction.encoded =
   high + low
 ;;
 
-(* TODO: Factorize register and value fetching *)
-let decode : Instruction.encoded -> Instruction.decoded = function
+let decode (code : Instruction.encoded) : Instruction.decoded =
+  let address = code &: 0x0FFF in
+  let vx = code &: 0x0F00 >> 8 in
+  let vy = code &: 0x00F0 >> 4 in
+  let v = code &: 0x00FF in
+  match code with
   | 0x0000 -> Invalid
   | 0x0001 -> Halt
   | 0x00E0 -> Clear_Screen
   | 0x00EE -> Return
-  | code when code &: 0x1000 = 0x1000 ->
-    let address = code &: 0x0FFF in
-    Jump address
-  | code when code &: 0x2000 = 0x2000 ->
-    let address = code &: 0x0FFF in
-    Call address
-  | code when code &: 0x3000 = 0x3000 ->
-    let register = code &: 0x0F00 >> 8 in
-    let value = code &: 0x00FF in
-    Skip_if_val_eq (register, value)
-  | code when code &: 0x4000 = 0x4000 ->
-    let register = code &: 0x0F00 >> 8 in
-    let value = code &: 0x00FF in
-    Skip_if_val_neq (register, value)
+  | code when code &: 0x1000 = 0x1000 -> Jump address
+  | code when code &: 0x2000 = 0x2000 -> Call address
+  | code when code &: 0x3000 = 0x3000 -> Skip_if_val_eq (vx, v)
+  | code when code &: 0x4000 = 0x4000 -> Skip_if_val_neq (vx, v)
   | code when code &: 0x5000 = 0x5000 ->
     (* TODO: Is this pattern correct? *)
-    let register1 = code &: 0x0F00 >> 8 in
-    let register2 = code &: 0x00F0 >> 4 in
-    Skip_if_reg_eq (register1, register2)
-  | code when code &: 0x6000 = 0x6000 ->
-    let register = code &: 0x0F00 >> 8 in
-    let value = code &: 0x00FF in
-    Put_val_in_reg (register, value)
-  | code when code &: 0x7000 = 0x7000 ->
-    let register = code &: 0x0F00 >> 8 in
-    let value = code &: 0x00FF in
-    Add_val_to_reg (register, value)
+    Skip_if_reg_eq (vx, vy)
+  | code when code &: 0x6000 = 0x6000 -> Put_val_in_reg (vx, v)
+  | code when code &: 0x7000 = 0x7000 -> Add_val_to_reg (vx, v)
   | code when code &: 0x8000 = 0x8000 ->
     (* TODO: Is this pattern correct? *)
-    let register1 = code &: 0x0F00 >> 8 in
-    let register2 = code &: 0x00F0 >> 4 in
-    Put_reg_in_reg (register1, register2)
-  | code when code &: 0x8001 = 0x8001 ->
-    let register1 = code &: 0x0F00 >> 8 in
-    let register2 = code &: 0x00F0 >> 4 in
-    Or_reg_with_reg (register1, register2)
-  | code when code &: 0x8002 = 0x8002 ->
-    let register1 = code &: 0x0F00 >> 8 in
-    let register2 = code &: 0x00F0 >> 4 in
-    And_reg_with_reg (register1, register2)
-  | code when code &: 0x8003 = 0x8003 ->
-    let register1 = code &: 0x0F00 >> 8 in
-    let register2 = code &: 0x00F0 >> 4 in
-    Xor_reg_with_reg (register1, register2)
+    Put_reg_in_reg (vx, vy)
+  | code when code &: 0x8001 = 0x8001 -> Or_reg_with_reg (vx, vy)
+  | code when code &: 0x8002 = 0x8002 -> And_reg_with_reg (vx, vy)
+  | code when code &: 0x8003 = 0x8003 -> Xor_reg_with_reg (vx, vy)
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -175,37 +150,32 @@ let execute state : Instruction.decoded -> unit =
   | Call address ->
     state.stack := !(state.pc) :: !(state.stack);
     state.pc := address
-  | Skip_if_val_eq (register, value) ->
-    let increment = if state.registers.(register) = value then 4 else 2 in
+  | Skip_if_val_eq (vx, v) ->
+    let increment = if state.registers.(vx) = v then 4 else 2 in
     state.pc := !(state.pc) + increment
-  | Skip_if_val_neq (register, value) ->
-    let increment = if state.registers.(register) <> value then 4 else 2 in
+  | Skip_if_val_neq (vx, v) ->
+    let increment = if state.registers.(vx) <> v then 4 else 2 in
     state.pc := !(state.pc) + increment
-  | Skip_if_reg_eq (register1, register2) ->
-    let increment =
-      if state.registers.(register1) <> state.registers.(register2) then 4 else 2
-    in
+  | Skip_if_reg_eq (vx, vy) ->
+    let increment = if state.registers.(vx) <> state.registers.(vy) then 4 else 2 in
     state.pc := !(state.pc) + increment
-  | Put_val_in_reg (register, value) ->
-    state.registers.(register) <- value;
+  | Put_val_in_reg (vx, v) ->
+    state.registers.(vx) <- v;
     state.pc := !(state.pc) + 2
-  | Add_val_to_reg (register, value) ->
-    state.registers.(register) <- state.registers.(register) + value;
+  | Add_val_to_reg (vx, v) ->
+    state.registers.(vx) <- state.registers.(vx) + v;
     state.pc := !(state.pc) + 2
-  | Put_reg_in_reg (register1, register2) ->
-    state.registers.(register1) <- state.registers.(register2);
+  | Put_reg_in_reg (vx, vy) ->
+    state.registers.(vx) <- state.registers.(vy);
     state.pc := !(state.pc) + 2
-  | Or_reg_with_reg (register1, register2) ->
-    state.registers.(register1)
-    <- state.registers.(register1) |: state.registers.(register2);
+  | Or_reg_with_reg (vx, vy) ->
+    state.registers.(vx) <- state.registers.(vx) |: state.registers.(vy);
     state.pc := !(state.pc) + 2
-  | And_reg_with_reg (register1, register2) ->
-    state.registers.(register1)
-    <- state.registers.(register1) &: state.registers.(register2);
+  | And_reg_with_reg (vx, vy) ->
+    state.registers.(vx) <- state.registers.(vx) &: state.registers.(vy);
     state.pc := !(state.pc) + 2
-  | Xor_reg_with_reg (register1, register2) ->
-    state.registers.(register1)
-    <- state.registers.(register1) ^: state.registers.(register2);
+  | Xor_reg_with_reg (vx, vy) ->
+    state.registers.(vx) <- state.registers.(vx) ^: state.registers.(vy);
     state.pc := !(state.pc) + 2
 ;;
 
