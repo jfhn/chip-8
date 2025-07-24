@@ -18,6 +18,9 @@ module Instruction = struct
     | Skip_if_val_eq of int * int (** SE 3xkk: if Vx = kk then PC += 2 *)
     | Skip_if_val_neq of int * int (** SNE 4xkk: if Vx <> kk then PC += 2 *)
     | Skip_if_reg_eq of int * int (** SE 5xy0: if Vx = Vy then PC += 2 *)
+    | Put_val_in_reg of int * int (** LD 6xkk: Vx = kk *)
+    | Add_val_to_reg of int * int (** ADD 7xkk: Vx = Vx + kk *)
+    | Put_reg_in_reg of int * int (** LD 8xy0: Vx = Vy *)
 
   let show : decoded -> string = 
     let open Printf in
@@ -31,6 +34,9 @@ module Instruction = struct
     | Skip_if_val_eq (register, value) -> sprintf "SE %x %02x" register value
     | Skip_if_val_neq (register, value) -> sprintf "SNE %x %02x" register value
     | Skip_if_reg_eq (register1, register2) -> sprintf "SNE %x %x" register1 register2
+    | Put_val_in_reg (register, value) -> sprintf "LD V%x %02x" register value
+    | Add_val_to_reg (register, value) -> sprintf "ADD V%x %02x" register value
+    | Put_reg_in_reg (register1, register2) -> sprintf "LD V%x V%x" register1 register2
   ;;
 end
 
@@ -109,6 +115,19 @@ let decode : Instruction.encoded -> Instruction.decoded = function
     let register1 = code &: 0x0F00 >> 8 in
     let register2 = code &: 0x00F0 >> 4 in
     Skip_if_reg_eq (register1, register2)
+  | code when code &: 0x6000 = 0x6000 ->
+    let register = code &: 0x0F00 >> 8 in
+    let value = code &: 0x00FF in
+    Put_val_in_reg (register, value)
+  | code when code &: 0x7000 = 0x7000 ->
+    let register = code &: 0x0F00 >> 8 in
+    let value = code &: 0x00FF in
+    Add_val_to_reg (register, value)
+  | code when code &: 0x8000 = 0x8000 ->
+    (* TODO: Is this pattern correct? *)
+    let register1 = code &: 0x0F00 >> 8 in
+    let register2 = code &: 0x00F0 >> 4 in
+    Put_reg_in_reg (register1, register2)
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -145,6 +164,15 @@ let execute state : Instruction.decoded -> unit = fun instruction ->
       if state.registers.(register1) <> state.registers.(register2) then 4 else 2
     in
     state.pc := !(state.pc) + increment
+  | Put_val_in_reg (register, value) ->
+    state.registers.(register) <- value;
+    state.pc := !(state.pc) + 2
+  | Add_val_to_reg (register, value) ->
+    state.registers.(register) <- state.registers.(register) + value;
+    state.pc := !(state.pc) + 2
+  | Put_reg_in_reg (register1, register2) ->
+    state.registers.(register1) <- state.registers.(register2);
+    state.pc := !(state.pc) + 2
 ;;
 
 (** *)
