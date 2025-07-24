@@ -24,6 +24,8 @@ module Instruction = struct
     | Or_reg_with_reg of int * int (** OR 8xy1: Vx OR Vy *)
     | And_reg_with_reg of int * int (** AND 8xy2: Vx AND Vy *)
     | Xor_reg_with_reg of int * int (** XOR 8xy3: Vx XOR Vy *)
+    | Add_reg_to_reg of int * int (** ADD 8xy4: Vx = Vx + Vy, VF = carry *)
+    | Sub_reg_from_reg of int * int (** SUB 8xy5: Vx = Vx - Vy, VF = Vx > Vy *)
 
   let show : decoded -> string =
     let open Printf in
@@ -43,6 +45,8 @@ module Instruction = struct
     | Or_reg_with_reg (vx, vy) -> sprintf "OR V%x V%x" vx vy
     | And_reg_with_reg (vx, vy) -> sprintf "AND V%x V%x" vx vy
     | Xor_reg_with_reg (vx, vy) -> sprintf "XOR V%x V%x" vx vy
+    | Add_reg_to_reg (vx, vy) -> sprintf "ADD V%x V%x" vx vy
+    | Sub_reg_from_reg (vx, vy) -> sprintf "SUB V%x V%x" vx vy
   ;;
 end
 
@@ -124,6 +128,8 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0x8001 = 0x8001 -> Or_reg_with_reg (vx, vy)
   | code when code &: 0x8002 = 0x8002 -> And_reg_with_reg (vx, vy)
   | code when code &: 0x8003 = 0x8003 -> Xor_reg_with_reg (vx, vy)
+  | code when code &: 0x8004 = 0x8004 -> Add_reg_to_reg (vx, vy)
+  | code when code &: 0x8005 = 0x8005 -> Sub_reg_from_reg (vx, vy)
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -176,6 +182,16 @@ let execute state : Instruction.decoded -> unit =
     state.pc := !(state.pc) + 2
   | Xor_reg_with_reg (vx, vy) ->
     state.registers.(vx) <- state.registers.(vx) ^: state.registers.(vy);
+    state.pc := !(state.pc) + 2
+  | Add_reg_to_reg (vx, vy) ->
+    let result = state.registers.(vx) + state.registers.(vy) in
+    state.registers.(15) <- (if result > 255 then 1 else 0);
+    state.registers.(vx) <- result % 255;
+    state.pc := !(state.pc) + 2
+  | Sub_reg_from_reg (vx, vy) ->
+    let x, y = state.registers.(vx), state.registers.(vy) in
+    state.registers.(15) <- (if x > y then 1 else 0);
+    state.registers.(vx) <- x - y;
     state.pc := !(state.pc) + 2
 ;;
 
