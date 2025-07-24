@@ -5,7 +5,7 @@ exception Halt
 
 (** *)
 module Instruction = struct
-  type encoded = int * int
+  type encoded = int
 
   (** *)
   type decoded =
@@ -32,10 +32,6 @@ module Instruction = struct
     | Skip_if_val_neq (register, value) -> sprintf "SNE %x %02x" register value
     | Skip_if_reg_eq (register1, register2) -> sprintf "SNE %x %x" register1 register2
   ;;
-end
-
-module Tuple = struct
-  let map ~(f : 'a -> 'b) : 'a * 'a -> 'b * 'b = fun (x, y) -> f x, f y
 end
 
 type config = { pixel_scale : int }
@@ -77,36 +73,43 @@ let setup () : state =
   }
 ;;
 
+let ( << ) = Int.shift_left
+let ( >> ) = Int.shift_right
+let ( &: ) = Int.bit_and
+
 (** *)
 let fetch state : Instruction.encoded =
   let pc = !(state.pc) in
-  Tuple.map ~f:Char.to_int (state.memory.(pc), state.memory.(pc + 1))
+  let high = (Char.to_int state.memory.(pc)) << 8 in
+  let low = Char.to_int state.memory.(pc + 1) in
+  high + low
 ;;
 
 let decode : Instruction.encoded -> Instruction.decoded = function
-  | 0, 0 -> Invalid
-  | 0, 1 -> Halt
-  | 0, 0xE0 -> Clear_Screen
-  | 0, 0xEE -> Return
-  | high, low when Int.bit_and high 0x10 = 0x10 ->
-    (* TODO: Simplify and remove Fn.flip *)
-    let address = (Int.bit_and high 0x0F |> Fn.flip Int.shift_left 8) + low in
+  | 0x0000 -> Invalid
+  | 0x0001 -> Halt
+  | 0x00E0 -> Clear_Screen
+  | 0x00EE -> Return
+  | code when code &: 0x1000 = 0x1000 ->
+    let address = code &: 0x0FFF in
     Jump address
-  | high, low when Int.bit_and high 0x20 = 0x20 ->
-    let address = (Int.bit_and high 0x0F |> Fn.flip Int.shift_left 8) + low in
+  | code when code &: 0x2000 = 0x2000 ->
+    let address = code &: 0x0FFF in
     Call address
-  | high, low when Int.bit_and high 0x30 = 0x30 ->
-    let register = Int.bit_and high 0x0F in
-    Skip_if_val_eq (register, low)
-  | high, low when Int.bit_and high 0x40 = 0x40 ->
-    let register = Int.bit_and high 0x0F in
-    Skip_if_val_neq (register, low)
-  | high, low when Int.bit_and high 0x50 = 0x50 && Int.bit_and low 0 = 0 ->
+  | code when code &: 0x3000 = 0x3000 ->
+    let register = code &: 0x0F00 >> 8 in
+    let value = code &: 0x00FF in
+    Skip_if_val_eq (register, value)
+  | code when code &: 0x4000 = 0x4000 ->
+    let register = code &: 0x0F00 >> 8 in
+    let value = code &: 0x00FF in
+    Skip_if_val_neq (register, value)
+  | code when code &: 0x5000 = 0x5000 ->
     (* TODO: Is this pattern correct? *)
-    let register1 = Int.bit_and high 0x0F in
-    let register2 = Int.bit_and low 0xF0 in
+    let register1 = code &: 0x0F00 >> 8 in
+    let register2 = code &: 0x00F0 >> 4 in
     Skip_if_reg_eq (register1, register2)
-  | high, low -> Printf.sprintf "unknown instruction: 0x%02x%02x\n" high low |> failwith
+  | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
 (** Simulates one instruction and updates the state *)
