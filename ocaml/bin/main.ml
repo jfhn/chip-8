@@ -32,6 +32,7 @@ module Instruction = struct
     | Skip_if_reg_neq of int * int (** SE 9xy0: if Vx <> Vy then PC += 2 *)
     | Set_index of int (** LD Annn: I = nnn *)
     | Jump_relative of int (** JP Bnnn: PC = nnn + V0 *)
+    | Random_byte of int * int (** RND Cxkk: Vx = random AND kk *)
 
   let show : decoded -> string =
     let open Printf in
@@ -56,9 +57,10 @@ module Instruction = struct
     | Shift_right vx -> sprintf "SHR V%x" vx
     | Sub_reg_from_reg_rev (vx, vy) -> sprintf "SUBN V%x V%x" vx vy
     | Shift_left vx -> sprintf "SHL V%x" vx
-    | Skip_if_reg_neq (vx, vy) -> sprintf "SNE %x %x" vx vy
+    | Skip_if_reg_neq (vx, vy) -> sprintf "SNE V%x V%x" vx vy
     | Set_index v -> sprintf "LD I %03x" v
     | Jump_relative address -> sprintf "JP V0 %03x" address
+    | Random_byte (vx, v) -> sprintf "RND V%x %02x" vx v
   ;;
 end
 
@@ -131,14 +133,10 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0x2000 = 0x2000 -> Call address
   | code when code &: 0x3000 = 0x3000 -> Skip_if_val_eq (vx, v)
   | code when code &: 0x4000 = 0x4000 -> Skip_if_val_neq (vx, v)
-  | code when code &: 0x5000 = 0x5000 ->
-    (* TODO: Is this pattern correct? *)
-    Skip_if_reg_eq (vx, vy)
+  | code when code &: 0x5000 = 0x5000 -> Skip_if_reg_eq (vx, vy)
   | code when code &: 0x6000 = 0x6000 -> Put_val_in_reg (vx, v)
   | code when code &: 0x7000 = 0x7000 -> Add_val_to_reg (vx, v)
-  | code when code &: 0x8000 = 0x8000 ->
-    (* TODO: Is this pattern correct? *)
-    Put_reg_in_reg (vx, vy)
+  | code when code &: 0x8000 = 0x8000 -> Put_reg_in_reg (vx, vy)
   | code when code &: 0x8001 = 0x8001 -> Or_reg_with_reg (vx, vy)
   | code when code &: 0x8002 = 0x8002 -> And_reg_with_reg (vx, vy)
   | code when code &: 0x8003 = 0x8003 -> Xor_reg_with_reg (vx, vy)
@@ -150,6 +148,7 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0x9000 = 0x9000 -> Skip_if_reg_neq (vx, vy)
   | code when code &: 0xA000 = 0xA000 -> Set_index address
   | code when code &: 0xB000 = 0xB000 -> Jump_relative address
+  | code when code &: 0xC000 = 0xC000 -> Random_byte (vx, v)
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -236,6 +235,9 @@ let execute state : Instruction.decoded -> unit =
     state.pc := !(state.pc) + 2
   | Jump_relative address ->
     state.pc := state.registers.(0) + address;
+    state.pc := !(state.pc) + 2
+  | Random_byte (vx, v) ->
+    state.registers.(vx) <- Random.int_incl 0 255 &: v;
     state.pc := !(state.pc) + 2
 ;;
 
