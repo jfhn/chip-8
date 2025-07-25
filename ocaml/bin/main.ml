@@ -29,6 +29,7 @@ module Instruction = struct
     | Shift_right of int (** SHR 8xy6: Vx = Vx >> 1, VF = LSB(Vx) = 1 *)
     | Sub_reg_from_reg_rev of int * int (** SUBN 8xy7: Vx = Vy - Vx, VF = Vy > Vx *)
     | Shift_left of int (** SHL 8xyE: Vx = Vx << 1, VF = MSB(Vx) = 1 *)
+    | Skip_if_reg_neq of int * int (** SE 9xy0: if Vx <> Vy then PC += 2 *)
 
   let show : decoded -> string =
     let open Printf in
@@ -41,7 +42,7 @@ module Instruction = struct
     | Call address -> sprintf "JUMP %03x" address
     | Skip_if_val_eq (vx, v) -> sprintf "SE %x %02x" vx v
     | Skip_if_val_neq (vx, v) -> sprintf "SNE %x %02x" vx v
-    | Skip_if_reg_eq (vx, vy) -> sprintf "SNE %x %x" vx vy
+    | Skip_if_reg_eq (vx, vy) -> sprintf "SE %x %x" vx vy
     | Put_val_in_reg (vx, v) -> sprintf "LD V%x %02x" vx v
     | Add_val_to_reg (vx, v) -> sprintf "ADD V%x %02x" vx v
     | Put_reg_in_reg (vx, vy) -> sprintf "LD V%x V%x" vx vy
@@ -53,6 +54,7 @@ module Instruction = struct
     | Shift_right vx -> sprintf "SHR V%x" vx
     | Sub_reg_from_reg_rev (vx, vy) -> sprintf "SUBN V%x V%x" vx vy
     | Shift_left vx -> sprintf "SHL V%x" vx
+    | Skip_if_reg_neq (vx, vy) -> sprintf "SNE %x %x" vx vy
   ;;
 end
 
@@ -139,6 +141,7 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0x8006 = 0x8006 -> Shift_right vx
   | code when code &: 0x8007 = 0x8007 -> Sub_reg_from_reg_rev (vx, vy)
   | code when code &: 0x800E = 0x800E -> Shift_left vx
+  | code when code &: 0x9000 = 0x9000 -> Skip_if_reg_neq (vx, vy)
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -172,7 +175,7 @@ let execute state : Instruction.decoded -> unit =
     let increment = if state.registers.(vx) <> v then 4 else 2 in
     state.pc := !(state.pc) + increment
   | Skip_if_reg_eq (vx, vy) ->
-    let increment = if state.registers.(vx) <> state.registers.(vy) then 4 else 2 in
+    let increment = if state.registers.(vx) = state.registers.(vy) then 4 else 2 in
     state.pc := !(state.pc) + increment
   | Put_val_in_reg (vx, v) ->
     state.registers.(vx) <- v;
@@ -217,6 +220,9 @@ let execute state : Instruction.decoded -> unit =
     state.registers.(15) <- (if x &: 0x80 = 0x80 then 1 else 0);
     state.registers.(vx) <- state.registers.(vx) << 1;
     state.pc := !(state.pc) + 2
+  | Skip_if_reg_neq (vx, vy) ->
+    let increment = if state.registers.(vx) <> state.registers.(vy) then 4 else 2 in
+    state.pc := !(state.pc) + increment
 ;;
 
 (** *)
