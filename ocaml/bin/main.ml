@@ -31,6 +31,7 @@ module Instruction = struct
     | Shift_left of int (** SHL 8xyE: Vx = Vx << 1, VF = MSB(Vx) = 1 *)
     | Skip_if_reg_neq of int * int (** SE 9xy0: if Vx <> Vy then PC += 2 *)
     | Set_index of int (** LD Annn: I = nnn *)
+    | Jump_relative of int (** JP Bnnn: PC = nnn + V0 *)
 
   let show : decoded -> string =
     let open Printf in
@@ -57,6 +58,7 @@ module Instruction = struct
     | Shift_left vx -> sprintf "SHL V%x" vx
     | Skip_if_reg_neq (vx, vy) -> sprintf "SNE %x %x" vx vy
     | Set_index v -> sprintf "LD I %03x" v
+    | Jump_relative address -> sprintf "JP V0 %03x" address
   ;;
 end
 
@@ -147,6 +149,7 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0x800E = 0x800E -> Shift_left vx
   | code when code &: 0x9000 = 0x9000 -> Skip_if_reg_neq (vx, vy)
   | code when code &: 0xA000 = 0xA000 -> Set_index address
+  | code when code &: 0xB000 = 0xB000 -> Jump_relative address
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -230,6 +233,9 @@ let execute state : Instruction.decoded -> unit =
     state.pc := !(state.pc) + increment
   | Set_index v ->
     state.i := v;
+    state.pc := !(state.pc) + 2
+  | Jump_relative address ->
+    state.pc := state.registers.(0) + address;
     state.pc := !(state.pc) + 2
 ;;
 
