@@ -26,6 +26,9 @@ module Instruction = struct
     | Xor_reg_with_reg of int * int (** XOR 8xy3: Vx XOR Vy *)
     | Add_reg_to_reg of int * int (** ADD 8xy4: Vx = Vx + Vy, VF = carry *)
     | Sub_reg_from_reg of int * int (** SUB 8xy5: Vx = Vx - Vy, VF = Vx > Vy *)
+    | Shift_right of int (** SHR 8xy6: Vx = Vx >> 1, VF = LSB(Vx) = 1 *)
+    | Sub_reg_from_reg_rev of int * int (** SUBN 8xy7: Vx = Vy - Vx, VF = Vy > Vx *)
+    | Shift_left of int (** SHL 8xyE: Vx = Vx << 1, VF = MSB(Vx) = 1 *)
 
   let show : decoded -> string =
     let open Printf in
@@ -47,6 +50,9 @@ module Instruction = struct
     | Xor_reg_with_reg (vx, vy) -> sprintf "XOR V%x V%x" vx vy
     | Add_reg_to_reg (vx, vy) -> sprintf "ADD V%x V%x" vx vy
     | Sub_reg_from_reg (vx, vy) -> sprintf "SUB V%x V%x" vx vy
+    | Shift_right vx -> sprintf "SHR V%x" vx
+    | Sub_reg_from_reg_rev (vx, vy) -> sprintf "SUBN V%x V%x" vx vy
+    | Shift_left vx -> sprintf "SHL V%x" vx
   ;;
 end
 
@@ -130,6 +136,9 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0x8003 = 0x8003 -> Xor_reg_with_reg (vx, vy)
   | code when code &: 0x8004 = 0x8004 -> Add_reg_to_reg (vx, vy)
   | code when code &: 0x8005 = 0x8005 -> Sub_reg_from_reg (vx, vy)
+  | code when code &: 0x8006 = 0x8006 -> Shift_right vx
+  | code when code &: 0x8007 = 0x8007 -> Sub_reg_from_reg_rev (vx, vy)
+  | code when code &: 0x800E = 0x800E -> Shift_left vx
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -192,6 +201,21 @@ let execute state : Instruction.decoded -> unit =
     let x, y = state.registers.(vx), state.registers.(vy) in
     state.registers.(15) <- (if x > y then 1 else 0);
     state.registers.(vx) <- x - y;
+    state.pc := !(state.pc) + 2
+  | Shift_right vx ->
+    let x = state.registers.(vx) in
+    state.registers.(15) <- (if x &: 0x01 = 0x01 then 1 else 0);
+    state.registers.(vx) <- x >> 1;
+    state.pc := !(state.pc) + 2
+  | Sub_reg_from_reg_rev (vx, vy) ->
+    let x, y = state.registers.(vx), state.registers.(vy) in
+    state.registers.(15) <- (if y > x then 1 else 0);
+    state.registers.(vx) <- y - x;
+    state.pc := !(state.pc) + 2
+  | Shift_left vx ->
+    let x = state.registers.(vx) in
+    state.registers.(15) <- (if x &: 0x80 = 0x80 then 1 else 0);
+    state.registers.(vx) <- state.registers.(vx) << 1;
     state.pc := !(state.pc) + 2
 ;;
 
