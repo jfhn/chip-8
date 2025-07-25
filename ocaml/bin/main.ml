@@ -30,6 +30,7 @@ module Instruction = struct
     | Sub_reg_from_reg_rev of int * int (** SUBN 8xy7: Vx = Vy - Vx, VF = Vy > Vx *)
     | Shift_left of int (** SHL 8xyE: Vx = Vx << 1, VF = MSB(Vx) = 1 *)
     | Skip_if_reg_neq of int * int (** SE 9xy0: if Vx <> Vy then PC += 2 *)
+    | Set_index of int (** LD Annn: I = nnn *)
 
   let show : decoded -> string =
     let open Printf in
@@ -55,6 +56,7 @@ module Instruction = struct
     | Sub_reg_from_reg_rev (vx, vy) -> sprintf "SUBN V%x V%x" vx vy
     | Shift_left vx -> sprintf "SHL V%x" vx
     | Skip_if_reg_neq (vx, vy) -> sprintf "SNE %x %x" vx vy
+    | Set_index v -> sprintf "LD I %03x" v
   ;;
 end
 
@@ -80,6 +82,7 @@ type memory = char array
 type state =
   { pc : int ref
   ; registers : int array
+  ; i : int ref
   ; stack : int list ref
       (* TODO: Emulates stack until usage within memory block is figured out *)
   ; memory : memory
@@ -91,6 +94,7 @@ let setup () : state =
   let screen_len = facts.width * facts.height in
   { pc = ref 0x200
   ; registers = Array.create ~len:16 0
+  ; i = ref 0
   ; stack = ref []
   ; memory = Array.create ~len:facts.memory (Char.of_int_exn 0)
   ; screen = Array.create ~len:screen_len facts.background_color
@@ -142,6 +146,7 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0x8007 = 0x8007 -> Sub_reg_from_reg_rev (vx, vy)
   | code when code &: 0x800E = 0x800E -> Shift_left vx
   | code when code &: 0x9000 = 0x9000 -> Skip_if_reg_neq (vx, vy)
+  | code when code &: 0xA000 = 0xA000 -> Set_index address
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -223,6 +228,9 @@ let execute state : Instruction.decoded -> unit =
   | Skip_if_reg_neq (vx, vy) ->
     let increment = if state.registers.(vx) <> state.registers.(vy) then 4 else 2 in
     state.pc := !(state.pc) + increment
+  | Set_index v ->
+    state.i := v;
+    state.pc := !(state.pc) + 2
 ;;
 
 (** *)
