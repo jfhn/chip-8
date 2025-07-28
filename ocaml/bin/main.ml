@@ -33,6 +33,8 @@ module Instruction = struct
     | Set_index of int (** LD Annn: I = nnn *)
     | Jump_relative of int (** JP Bnnn: PC = nnn + V0 *)
     | Random_byte of int * int (** RND Cxkk: Vx = random AND kk *)
+    | Draw of int * int * int
+    (** DRW Dxyn: draw n-byte sprite at Vx, Vy, set VF = collision *)
 
   let show : decoded -> string =
     let open Printf in
@@ -61,12 +63,16 @@ module Instruction = struct
     | Set_index v -> sprintf "LD I %03x" v
     | Jump_relative address -> sprintf "JP V0 %03x" address
     | Random_byte (vx, v) -> sprintf "RND V%x %02x" vx v
+    | Draw (vx, vy, n) -> sprintf "DRW V%x V%x %x" vx vy n
   ;;
 end
 
-type config = { pixel_scale : int }
+type config =
+  { pixel_scale : int
+  ; pixel_white : Raylib.Color.t
+  }
 
-let config = { pixel_scale = 8 }
+let config = { pixel_scale = 8; pixel_white = Raylib.Color.raywhite }
 
 type facts =
   { width : int
@@ -88,9 +94,9 @@ type state =
   ; registers : int array
   ; i : int ref
   ; stack : int list ref
-      (* TODO: Emulates stack until usage within memory block is figured out *)
+    (* TODO: Emulates stack until usage within memory block is figured out *)
   ; memory : memory
-  ; screen : Raylib.Color.t array
+  ; screen : bool array
   }
 
 (** *)
@@ -101,7 +107,7 @@ let setup () : state =
   ; i = ref 0
   ; stack = ref []
   ; memory = Array.create ~len:facts.memory (Char.of_int_exn 0)
-  ; screen = Array.create ~len:screen_len facts.background_color
+  ; screen = Array.create ~len:screen_len false
   }
 ;;
 
@@ -124,6 +130,7 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   let vx = code &: 0x0F00 >> 8 in
   let vy = code &: 0x00F0 >> 4 in
   let v = code &: 0x00FF in
+  let n = code &: 0x000F in
   match code with
   | 0x0000 -> Invalid
   | 0x0001 -> Halt
@@ -149,6 +156,7 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0xA000 = 0xA000 -> Set_index address
   | code when code &: 0xB000 = 0xB000 -> Jump_relative address
   | code when code &: 0xC000 = 0xC000 -> Random_byte (vx, v)
+  | code when code &: 0xD000 = 0xD000 -> Draw (vx, vy, n)
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -162,7 +170,7 @@ let execute state : Instruction.decoded -> unit =
   | Clear_Screen ->
     let len = facts.width * facts.height in
     for i = 0 to len - 1 do
-      state.screen.(i) <- facts.background_color
+      state.screen.(i) <- false
     done;
     state.pc := !(state.pc) + 2
   | Return ->
@@ -239,6 +247,23 @@ let execute state : Instruction.decoded -> unit =
   | Random_byte (vx, v) ->
     state.registers.(vx) <- Random.int_incl 0 255 &: v;
     state.pc := !(state.pc) + 2
+  | Draw (vx, vy, n) ->
+    (* Draw 8xn sprites *)
+    let char_to_bool (ch : char) : bool = Char.to_int ch <> 0 in
+    let xor a b = Bool.(a <> b) in
+    for y = 0 to n - 1 do
+      for x = 0 to 7 do
+        let tx = vx + x + if vx + x > facts.width then -facts.width else 0 in
+        let ty =
+          vy + y + if vy + y > facts.height then -(facts.width * facts.height) else 0
+        in
+        let ti = (ty * facts.width) + tx in
+        let source = char_to_bool state.memory.(!(state.i) + (y * 8) + x) in
+        (* If the value is erased (i.e. it *was* set), we set VF = 1 *)
+        if state.screen.(ti) && not source then state.registers.(15) <- 1;
+        state.screen.(ti) <- xor state.screen.(ti) source
+      done
+    done
 ;;
 
 (** *)
@@ -250,7 +275,10 @@ let draw state : unit =
     for x = 0 to facts.width - 1 do
       let scale = config.pixel_scale in
       let i = (y * facts.width) + x in
-      draw_rectangle (x * scale) (y * scale) scale scale state.screen.(i)
+      let color =
+        if state.screen.(i) then config.pixel_white else facts.background_color
+      in
+      draw_rectangle (x * scale) (y * scale) scale scale color
     done
   done;
   end_drawing ()
@@ -265,14 +293,14 @@ let run state : unit =
 let load_example state : unit =
   let ch = Char.of_int_exn in
   let pc = !(state.pc) in
-  state.memory.(pc + 0) <- ch 0;
   (* CLS *)
+  state.memory.(pc + 0) <- ch 0;
   state.memory.(pc + 1) <- ch 0xE0;
+  (* JUMP 0x1204 *)
   state.memory.(pc + 2) <- ch 0x12;
-  (* JUMP 0x204 *)
   state.memory.(pc + 3) <- ch 0x04;
-  state.memory.(pc + 4) <- ch 0;
   (* HALT *)
+  state.memory.(pc + 4) <- ch 0;
   state.memory.(pc + 5) <- ch 1;
   Stdio.printf
     "%02x%02x%02x%02x%02x%02x\n"
