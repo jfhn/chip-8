@@ -35,6 +35,9 @@ module Instruction = struct
     | Random_byte of int * int (** RND Cxkk: Vx = random AND kk *)
     | Draw of int * int * int
     (** DRW Dxyn: draw n-byte sprite at Vx, Vy, set VF = collision *)
+    | Skip_if_key_down of int (** SKP Ex9E: If key in Vx is pressed then PC += 2 *)
+    | Skip_if_not_key_down of int
+    (** SKNP Ex9E: If key in Vx is not pressed then PC += 2 *)
 
   let show : decoded -> string =
     let open Printf in
@@ -64,6 +67,8 @@ module Instruction = struct
     | Jump_relative address -> sprintf "JP V0 %03x" address
     | Random_byte (vx, v) -> sprintf "RND V%x %02x" vx v
     | Draw (vx, vy, n) -> sprintf "DRW V%x V%x %x" vx vy n
+    | Skip_if_key_down vx -> sprintf "SKP V%x" vx
+    | Skip_if_not_key_down vx -> sprintf "SKNP V%x" vx
   ;;
 end
 
@@ -93,6 +98,7 @@ type state =
   { pc : int ref
   ; registers : int array
   ; i : int ref
+  ; keys : bool array
   ; stack : int list ref
     (* TODO: Emulates stack until usage within memory block is figured out *)
   ; memory : memory
@@ -105,6 +111,7 @@ let setup () : state =
   { pc = ref 0x200
   ; registers = Array.create ~len:16 0
   ; i = ref 0
+  ; keys = Array.create ~len:16 false
   ; stack = ref []
   ; memory = Array.create ~len:facts.memory (Char.of_int_exn 0)
   ; screen = Array.create ~len:screen_len false
@@ -157,6 +164,8 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0xB000 = 0xB000 -> Jump_relative address
   | code when code &: 0xC000 = 0xC000 -> Random_byte (vx, v)
   | code when code &: 0xD000 = 0xD000 -> Draw (vx, vy, n)
+  | code when code &: 0xE09E = 0xE09E -> Skip_if_key_down vx
+  | code when code &: 0xE0A1 = 0xE0A1 -> Skip_if_not_key_down vx
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -264,6 +273,20 @@ let execute state : Instruction.decoded -> unit =
         state.screen.(ti) <- xor state.screen.(ti) source
       done
     done
+  | Skip_if_key_down vx ->
+    let key = state.registers.(vx) in
+    if key >= 16
+    then failwith "invalid key"
+    else (
+      let increment = if state.keys.(state.registers.(vx)) then 4 else 2 in
+      state.pc := !(state.pc) + increment)
+  | Skip_if_not_key_down vx ->
+    let key = state.registers.(vx) in
+    if key >= 16
+    then failwith "invalid key"
+    else (
+      let increment = if state.keys.(state.registers.(vx)) then 4 else 2 in
+      state.pc := !(state.pc) + increment)
 ;;
 
 (** *)
