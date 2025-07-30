@@ -309,8 +309,7 @@ let execute state : Instruction.decoded -> unit =
   | Read_delay vx ->
     state.registers.(vx) <- !(state.delay_timer);
     state.pc := !(state.pc) + 2
-  | Wait_for_key_press _ ->
-    todo "implement Wait_for_key_press"
+  | Wait_for_key_press _ -> todo "implement Wait_for_key_press"
   | Set_delay vx ->
     state.delay_timer := state.registers.(vx);
     state.pc := !(state.pc) + 2
