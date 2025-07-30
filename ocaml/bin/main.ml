@@ -43,6 +43,7 @@ module Instruction = struct
     | Read_delay of int (** LD Fx07: Vx = delay *)
     | Wait_for_key_press of int (** LD Fx0A: Vx = key *)
     | Set_delay of int (** LD Fx15: delay = Vx *)
+    | Set_sound_timer of int (** LD Fx18: sound timer = Vx *)
 
   let show : decoded -> string =
     let open Printf in
@@ -77,6 +78,7 @@ module Instruction = struct
     | Read_delay vx -> sprintf "LD V%x DT" vx
     | Wait_for_key_press vx -> sprintf "LD V%x K" vx
     | Set_delay vx -> sprintf "LD DT V%x" vx
+    | Set_sound_timer vx -> sprintf "LD ST V%x" vx
   ;;
 end
 
@@ -108,6 +110,7 @@ type state =
   ; i : int ref
   ; keys : bool array
   ; delay_timer : int ref
+  ; sound_timer : int ref
   ; stack : int list ref
     (* TODO: Emulates stack until usage within memory block is figured out *)
   ; memory : memory
@@ -122,6 +125,7 @@ let setup () : state =
   ; i = ref 0
   ; keys = Array.create ~len:16 false
   ; delay_timer = ref 0
+  ; sound_timer = ref 0
   ; stack = ref []
   ; memory = Array.create ~len:facts.memory (Char.of_int_exn 0)
   ; screen = Array.create ~len:screen_len false
@@ -179,6 +183,7 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0xF007 = 0xF007 -> Read_delay vx
   | code when code &: 0xF00A = 0xF00A -> Wait_for_key_press vx
   | code when code &: 0xF015 = 0xF015 -> Set_delay vx
+  | code when code &: 0xF018 = 0xF018 -> Set_sound_timer vx
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -308,6 +313,9 @@ let execute state : Instruction.decoded -> unit =
     todo "implement Wait_for_key_press"
   | Set_delay vx ->
     state.delay_timer := state.registers.(vx);
+    state.pc := !(state.pc) + 2
+  | Set_sound_timer vx ->
+    state.sound_timer := state.registers.(vx);
     state.pc := !(state.pc) + 2
 ;;
 
