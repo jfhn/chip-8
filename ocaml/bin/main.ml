@@ -3,6 +3,8 @@ open Base
 exception Invalid
 exception Halt
 
+let todo msg : unit = "TODO: " ^ msg |> failwith
+
 (** *)
 module Instruction = struct
   type encoded = int
@@ -38,6 +40,9 @@ module Instruction = struct
     | Skip_if_key_down of int (** SKP Ex9E: If key in Vx is pressed then PC += 2 *)
     | Skip_if_not_key_down of int
     (** SKNP Ex9E: If key in Vx is not pressed then PC += 2 *)
+    | Read_delay of int (** LD Fx07: Vx = delay *)
+    | Wait_for_key_press of int (** LD Fx0A: Vx = key *)
+    | Set_delay of int (** LD Fx15: delay = Vx *)
 
   let show : decoded -> string =
     let open Printf in
@@ -69,6 +74,9 @@ module Instruction = struct
     | Draw (vx, vy, n) -> sprintf "DRW V%x V%x %x" vx vy n
     | Skip_if_key_down vx -> sprintf "SKP V%x" vx
     | Skip_if_not_key_down vx -> sprintf "SKNP V%x" vx
+    | Read_delay vx -> sprintf "LD V%x DT" vx
+    | Wait_for_key_press vx -> sprintf "LD V%x K" vx
+    | Set_delay vx -> sprintf "LD DT V%x" vx
   ;;
 end
 
@@ -99,6 +107,7 @@ type state =
   ; registers : int array
   ; i : int ref
   ; keys : bool array
+  ; delay_timer : int ref
   ; stack : int list ref
     (* TODO: Emulates stack until usage within memory block is figured out *)
   ; memory : memory
@@ -112,6 +121,7 @@ let setup () : state =
   ; registers = Array.create ~len:16 0
   ; i = ref 0
   ; keys = Array.create ~len:16 false
+  ; delay_timer = ref 0
   ; stack = ref []
   ; memory = Array.create ~len:facts.memory (Char.of_int_exn 0)
   ; screen = Array.create ~len:screen_len false
@@ -166,6 +176,9 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0xD000 = 0xD000 -> Draw (vx, vy, n)
   | code when code &: 0xE09E = 0xE09E -> Skip_if_key_down vx
   | code when code &: 0xE0A1 = 0xE0A1 -> Skip_if_not_key_down vx
+  | code when code &: 0xF007 = 0xF007 -> Read_delay vx
+  | code when code &: 0xF00A = 0xF00A -> Wait_for_key_press vx
+  | code when code &: 0xF015 = 0xF015 -> Set_delay vx
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -272,7 +285,8 @@ let execute state : Instruction.decoded -> unit =
         if state.screen.(ti) && not source then state.registers.(15) <- 1;
         state.screen.(ti) <- xor state.screen.(ti) source
       done
-    done
+    done;
+    state.pc := !(state.pc) + 2
   | Skip_if_key_down vx ->
     let key = state.registers.(vx) in
     if key >= 16
@@ -287,6 +301,14 @@ let execute state : Instruction.decoded -> unit =
     else (
       let increment = if state.keys.(state.registers.(vx)) then 4 else 2 in
       state.pc := !(state.pc) + increment)
+  | Read_delay vx ->
+    state.registers.(vx) <- !(state.delay_timer);
+    state.pc := !(state.pc) + 2
+  | Wait_for_key_press _ ->
+    todo "implement Wait_for_key_press"
+  | Set_delay vx ->
+    state.delay_timer := state.registers.(vx);
+    state.pc := !(state.pc) + 2
 ;;
 
 (** *)
