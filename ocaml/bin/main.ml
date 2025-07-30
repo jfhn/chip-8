@@ -44,6 +44,11 @@ module Instruction = struct
     | Wait_for_key_press of int (** LD Fx0A: Vx = key *)
     | Set_delay of int (** LD Fx15: delay = Vx *)
     | Set_sound_timer of int (** LD Fx18: sound timer = Vx *)
+    | Increment_index of int (** ADD Fx1E: I = I + Vx *)
+    | Set_index_sprite_digit of int (** LD Fx29: I = location of sprite for digit Vx *)
+    | Store_bcd of int (** LD Fx33: Vx = nmk, I = n00, I+1 = m0, I+2 = k *)
+    | Save_registers of int (** LD Fx55: I+0 = V0, ..., I+x = Vx *)
+    | Restore_registers of int (** LD Fx65: V0 = I+0, ... Vx = I+x *)
 
   let show : decoded -> string =
     let open Printf in
@@ -79,6 +84,11 @@ module Instruction = struct
     | Wait_for_key_press vx -> sprintf "LD V%x K" vx
     | Set_delay vx -> sprintf "LD DT V%x" vx
     | Set_sound_timer vx -> sprintf "LD ST V%x" vx
+    | Increment_index vx -> sprintf "ADD I V%x" vx
+    | Set_index_sprite_digit vx -> sprintf "LD F V%x" vx
+    | Store_bcd vx -> sprintf "LD B V%x" vx
+    | Save_registers vx -> sprintf "LD [I] V%x" vx
+    | Restore_registers vx -> sprintf "LD V%x [I]" vx
   ;;
 end
 
@@ -184,6 +194,11 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
   | code when code &: 0xF00A = 0xF00A -> Wait_for_key_press vx
   | code when code &: 0xF015 = 0xF015 -> Set_delay vx
   | code when code &: 0xF018 = 0xF018 -> Set_sound_timer vx
+  | code when code &: 0xF01E = 0xF01E -> Increment_index vx
+  | code when code &: 0xF029 = 0xF029 -> Set_index_sprite_digit vx
+  | code when code &: 0xF033 = 0xF033 -> Store_bcd vx
+  | code when code &: 0xF055 = 0xF055 -> Save_registers vx
+  | code when code &: 0xF065 = 0xF065 -> Restore_registers vx
   | code -> Printf.sprintf "unknown instruction: 0x%04x\n" code |> failwith
 ;;
 
@@ -316,6 +331,27 @@ let execute state : Instruction.decoded -> unit =
   | Set_sound_timer vx ->
     state.sound_timer := state.registers.(vx);
     state.pc := !(state.pc) + 2
+  | Increment_index vx ->
+    state.i := !(state.i) + state.registers.(vx);
+    state.pc := !(state.pc) + 2
+  | Set_index_sprite_digit _ -> todo "implement Set_index_sprite_digit"
+  | Store_bcd vx ->
+    (match Printf.sprintf "%03d" state.registers.(vx) |> String.to_list with
+     | [ _; _; _ ] as digits ->
+       let store offset ch : int =
+         state.memory.(!(state.i) + offset) <- ch;
+         offset + 1
+       in
+       List.fold_left digits ~init:0 ~f:store |> ignore
+     | _ -> failwith "internal error: BCD has not exactly 3 digits")
+  | Save_registers vx ->
+    let store vi =
+      state.memory.(!(state.i) + vi) <- Char.of_int_exn state.registers.(vi)
+    in
+    List.range ~stop:`inclusive 0 vx |> List.iter ~f:store
+  | Restore_registers vx ->
+    let restore vi = state.registers.(vi) <- Char.to_int state.memory.(!(state.i) + vi) in
+    List.range ~stop:`inclusive 0 vx |> List.iter ~f:restore
 ;;
 
 (** *)
