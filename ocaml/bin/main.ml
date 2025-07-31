@@ -324,7 +324,13 @@ let execute state : Instruction.decoded -> unit =
   | Read_delay vx ->
     state.registers.(vx) <- !(state.delay_timer);
     state.pc := !(state.pc) + 2
-  | Wait_for_key_press _ -> todo "implement Wait_for_key_press"
+  | Wait_for_key_press vx ->
+    let open Raylib in
+    let key : int ref = Key.Null |> Key.to_int |> ref in
+    while !key = Key.to_int Key.Null do
+      key := get_key_pressed () |> Key.to_int;
+    done;
+    state.registers.(vx) <- !key
   | Set_delay vx ->
     state.delay_timer := state.registers.(vx);
     state.pc := !(state.pc) + 2
