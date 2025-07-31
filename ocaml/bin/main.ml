@@ -3,8 +3,6 @@ open Base
 exception Invalid
 exception Halt
 
-let todo msg : unit = "TODO: " ^ msg |> failwith
-
 (** *)
 module Instruction = struct
   type encoded = int
@@ -95,20 +93,27 @@ end
 type config =
   { pixel_scale : int
   ; pixel_white : Raylib.Color.t
+  ; digits_begin : int
   }
 
-let config = { pixel_scale = 8; pixel_white = Raylib.Color.raywhite }
+let config = { pixel_scale = 8; pixel_white = Raylib.Color.raywhite; digits_begin = 0 }
 
 type facts =
   { width : int
   ; height : int
   ; background_color : Raylib.Color.t
   ; memory : int
+  ; digit_sprite_size : int
   }
 
 (** *)
 let facts : facts =
-  { width = 64; height = 32; background_color = Raylib.Color.black; memory = 4096 }
+  { width = 64
+  ; height = 32
+  ; background_color = Raylib.Color.black
+  ; memory = 4096
+  ; digit_sprite_size = 5 * 4
+  }
 ;;
 
 type memory = char array
@@ -328,7 +333,7 @@ let execute state : Instruction.decoded -> unit =
     let open Raylib in
     let key : int ref = Key.Null |> Key.to_int |> ref in
     while !key = Key.to_int Key.Null do
-      key := get_key_pressed () |> Key.to_int;
+      key := get_key_pressed () |> Key.to_int
     done;
     state.registers.(vx) <- !key
   | Set_delay vx ->
@@ -340,7 +345,10 @@ let execute state : Instruction.decoded -> unit =
   | Increment_index vx ->
     state.i := !(state.i) + state.registers.(vx);
     state.pc := !(state.pc) + 2
-  | Set_index_sprite_digit _ -> todo "implement Set_index_sprite_digit"
+  | Set_index_sprite_digit vx ->
+    let i = state.registers.(vx) in
+    if i >= 16 then failwith "internal error: too large digit index";
+    state.i := config.digits_begin + (i * facts.digit_sprite_size)
   | Store_bcd vx ->
     (match Printf.sprintf "%03d" state.registers.(vx) |> String.to_list with
      | [ _; _; _ ] as digits ->
