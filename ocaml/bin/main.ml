@@ -388,6 +388,8 @@ let draw state : unit =
 
 (** *)
 let run state : unit =
+  if !(state.delay_timer) < 0 then state.delay_timer := !(state.delay_timer) - 1;
+  if !(state.sound_timer) < 0 then state.sound_timer := !(state.sound_timer) - 1;
   let instruction = state |> fetch |> decode in
   execute state instruction
 ;;
