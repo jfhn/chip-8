@@ -120,8 +120,8 @@ type memory = char array
 (** *)
 type state =
   { pc : int ref
-  ; registers : int array
   ; i : int ref
+  ; registers : int array
   ; keys : bool array
   ; delay_timer : int ref
   ; sound_timer : int ref
@@ -135,8 +135,8 @@ type state =
 let setup () : state =
   let screen_len = facts.width * facts.height in
   { pc = ref 0x200
-  ; registers = Array.create ~len:16 0
   ; i = ref 0
+  ; registers = Array.create ~len:16 0
   ; keys = Array.create ~len:16 false
   ; delay_timer = ref 0
   ; sound_timer = ref 0
@@ -409,80 +409,98 @@ let parse_args () : string =
   | _ -> failwith "unreachable"
 ;;
 
-let debug state config input_path : unit =
-  let open Stdio in
+(** Debug layout:
+    [ actions ]
+    [ registers, PC, I, V..., float left
+      ... ]
+    [ stack, growing -> ]
+ *)
+type debug_gui_config = { button_height : int; button_min_width : int; margin_top: int }
+
+let debug_gui_config : debug_gui_config =
+  { button_height = 30; button_min_width = 100; margin_top = 10 }
+;;
+
+type window_info = { screen_dim : int * int; }
+
+let debug state config window_info : unit =
+  let open Raylib in
+  (* Input handling *)
+  (match get_char_pressed () |> Uchar.to_char_exn with
+   | 'q' -> close_window ()
+   | 's' -> step state config
+   | 'k' -> failwith "key input not implemented"
+   | _ -> ());
+  (* Draw *)
+  draw state config;
+  let { button_height; _ } = debug_gui_config in
+  let text_padding = 2 in
+  let font_size = button_height - 2 * text_padding in
+  let draw_button x y text : int =
+    let text_width = measure_text text font_size in
+    let width = max debug_gui_config.button_min_width (text_width + 2 * text_padding) in
+    draw_rectangle x y width debug_gui_config.button_height Color.lightgray;
+    draw_text text (x + text_padding) (y + text_padding) font_size Color.black;
+    width
+  in
+  (* Draw actions *)
+  let actions: (string * string) list = [ "q", "quit"; "s", "step"; "k", "key input" ] in
+  let _, sy = window_info.screen_dim in
+  let y = sy + debug_gui_config.margin_top in
+  let f x (key, desc) = x + (draw_button x y (key ^ " - " ^ desc)) + 10 in
+  actions |> List.fold_left ~init:0 ~f |> ignore;
+  (* Draw first row registers *)
   let open Printf in
-  printf "debug program: %s\n" input_path;
-  let print_state () =
-    let vs : int list = Array.to_list state.registers in
-    let indices : int list =
-      Sequence.range ~stop:`exclusive 0 (Array.length state.registers) |> Sequence.to_list
-    in
-    let vs' : string =
-      List.zip_exn indices vs
-      |> List.map ~f:(fun (i, x) -> sprintf "V%x = %x" i x)
-      |> String.concat ~sep:", "
-    in
-    printf "registers: pc = %x, i = %x, %s\n" !(state.pc) !(state.i) vs';
-    let stack = !(state.stack) |> List.map ~f:Int.to_string |> String.concat ~sep:", " in
-    printf "stack: [ %s ]\n" stack;
-    printf "timers: delay = %x, sound = %x\n" !(state.delay_timer) !(state.sound_timer)
-  in
-  let print_usage () : unit =
-    print_string
-      ("usage:\n"
-       ^ "  ?\thelp\n"
-       ^ "  q\tquit\n"
-       ^ "  s\tstep\n"
-       ^ "  i\tshow state info\n"
-       ^ "  m d d\tprint memory in range\n"
-       ^ "  k\tinput key\n")
-  in
-  let print_next_instruction () : unit =
-    printf "next instruction: %s\n" (state |> fetch |> decode |> Instruction.show)
-  in
-  print_usage ();
-  print_state ();
-  let rec loop () =
-    let exception Break in
-    print_state ();
-    try
-      print_next_instruction ();
-      print_string "> ";
-      Out_channel.flush Out_channel.stdout;
-      let command = In_channel.input_line_exn In_channel.stdin in
-      if String.(command = "s")
-      then step state config
-      else if String.(command = "q")
-      then raise Break
-      else if String.(command = "?")
-      then print_usage ()
-      else if String.(command = "i")
-      then print_state ()
-      else if String.(command = "")
-      then step state config
-      else printf "command not implemented: '%s'" command;
-      loop ()
-    with
-    | Break -> ()
-  in
-  loop ()
+  let y = sy + debug_gui_config.button_height + 2 * debug_gui_config.margin_top in
+  let pc_width = draw_button 0 y (sprintf "PC: %x" !(state.pc)) in
+  let i_width = draw_button (pc_width + 10) y (sprintf "I: %x" !(state.i)) in
+  (* NOTE: Manual screen wrap *)
+  let f x i = x + (draw_button x y (sprintf "V%x: %x" i state.registers.(i))) + 10 in
+  Sequence.range 0 7 |> Sequence.to_list |> List.fold_left ~init:(pc_width + i_width + 20) ~f |> ignore;
+  (* Draw second row registers *)
+  let y = sy + 2 * debug_gui_config.button_height + 3 * debug_gui_config.margin_top in
+  let f x i = x + (draw_button x y (sprintf "V%x: %x" i state.registers.(i))) + 10 in
+  Sequence.range 7 16 |> Sequence.to_list |> List.fold_left ~init:0 ~f |> ignore;
+  (* Draw stack *)
+  let y = sy + 3 * debug_gui_config.button_height + 4 * debug_gui_config.margin_top in
+  let f x item = x + (draw_button x y (sprintf "%x" item)) + 10 in
+  !(state.stack) |> Fn.flip List.take 10 |> List.fold_left ~init:0 ~f |> ignore
 ;;
 
 let run state config : unit =
+  step state config;
+  draw state config
+;;
+
+let with_window config (f : window_info -> unit) : unit =
   let open Raylib in
-  init_window 800 600 "CHIP-8";
+  let width = facts.width * config.pixel_scale in
+  let height = facts.height * config.pixel_scale in
+  let window_info = (match config.debug with
+   | false ->
+     init_window width height "CHIP-8";
+     { screen_dim = width, height }
+   | true ->
+     let { button_height; button_min_width; margin_top } = debug_gui_config in
+     let button_rows = 2 + (button_min_width * 18 / width + 1) in
+     let debug_height = button_rows * button_height + button_rows * margin_top in
+     Stdio.printf "open debug window screen %dx%d and full width %d\n" width height (height + debug_height);
+     init_window width (height + debug_height) "CHIP-8 (Debug)";
+     { screen_dim = width, height }) in
   set_target_fps 60;
   while not @@ window_should_close () do
-    step state config;
-    draw state config
+    f window_info
   done;
   close_window ()
 ;;
 
 (* TODO? Make config passable via cmd args? *)
 let config : config =
-  { pixel_scale = 8; pixel_white = Raylib.Color.raywhite; digits_begin = 0; debug = false }
+  { pixel_scale = 16
+  ; pixel_white = Raylib.Color.raywhite
+  ; digits_begin = 0
+  ; debug = true
+  }
 ;;
 
 let () =
@@ -490,6 +508,6 @@ let () =
   let state = setup () in
   load_program state input_path;
   match config.debug with
-  | true -> debug state config input_path
-  | false -> run state config
+  | true -> with_window config (fun info -> debug state config info)
+  | false -> with_window config (fun _ -> run state config)
 ;;
