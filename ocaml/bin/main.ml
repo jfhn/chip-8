@@ -94,9 +94,8 @@ type config =
   { pixel_scale : int
   ; pixel_white : Raylib.Color.t
   ; digits_begin : int
+  ; debug : bool
   }
-
-let config = { pixel_scale = 8; pixel_white = Raylib.Color.raywhite; digits_begin = 0 }
 
 type facts =
   { width : int
@@ -208,7 +207,7 @@ let decode (code : Instruction.encoded) : Instruction.decoded =
 ;;
 
 (** Simulates one instruction and updates the state *)
-let execute state : Instruction.decoded -> unit =
+let execute state config : Instruction.decoded -> unit =
   fun instruction ->
   Stdio.printf "execute %s\n" (Instruction.show instruction);
   match instruction with
@@ -369,7 +368,7 @@ let execute state : Instruction.decoded -> unit =
 ;;
 
 (** *)
-let draw state : unit =
+let draw state config : unit =
   let open Raylib in
   begin_drawing ();
   clear_background Color.black;
@@ -387,44 +386,110 @@ let draw state : unit =
 ;;
 
 (** *)
-let run state : unit =
+let step state config : unit =
   if !(state.delay_timer) < 0 then state.delay_timer := !(state.delay_timer) - 1;
   if !(state.sound_timer) < 0 then state.sound_timer := !(state.sound_timer) - 1;
   let instruction = state |> fetch |> decode in
-  execute state instruction
+  execute state config instruction
 ;;
 
-let load_example state : unit =
-  let ch = Char.of_int_exn in
-  let pc = !(state.pc) in
-  (* CLS *)
-  state.memory.(pc + 0) <- ch 0;
-  state.memory.(pc + 1) <- ch 0xE0;
-  (* JUMP 0x1204 *)
-  state.memory.(pc + 2) <- ch 0x12;
-  state.memory.(pc + 3) <- ch 0x04;
-  (* HALT *)
-  state.memory.(pc + 4) <- ch 0;
-  state.memory.(pc + 5) <- ch 1;
-  Stdio.printf
-    "%02x%02x%02x%02x%02x%02x\n"
-    (Char.to_int state.memory.(pc + 0))
-    (Char.to_int state.memory.(pc + 1))
-    (Char.to_int state.memory.(pc + 2))
-    (Char.to_int state.memory.(pc + 3))
-    (Char.to_int state.memory.(pc + 4))
-    (Char.to_int state.memory.(pc + 5))
+let load_program state path : unit =
+  let content = Stdio.In_channel.read_all path |> String.to_list in
+  let f i ch : int =
+    state.memory.(i) <- ch;
+    i + 1
+  in
+  List.fold_left ~init:!(state.pc) ~f content |> ignore
 ;;
 
-let () =
-  let state = setup () in
-  load_example state;
+let parse_args () : string =
+  match Sys.get_argv () |> Array.to_list with
+  | [ _; path ] -> path
+  | program :: _ -> "Usage: " ^ program ^ " <path-to-file>" |> failwith
+  | _ -> failwith "unreachable"
+;;
+
+let debug state config input_path : unit =
+  let open Stdio in
+  let open Printf in
+  printf "debug program: %s\n" input_path;
+  let print_state () =
+    let vs : int list = Array.to_list state.registers in
+    let indices : int list =
+      Sequence.range ~stop:`exclusive 0 (Array.length state.registers) |> Sequence.to_list
+    in
+    let vs' : string =
+      List.zip_exn indices vs
+      |> List.map ~f:(fun (i, x) -> sprintf "V%x = %x" i x)
+      |> String.concat ~sep:", "
+    in
+    printf "registers: pc = %x, i = %x, %s\n" !(state.pc) !(state.i) vs';
+    let stack = !(state.stack) |> List.map ~f:Int.to_string |> String.concat ~sep:", " in
+    printf "stack: [ %s ]\n" stack;
+    printf "timers: delay = %x, sound = %x\n" !(state.delay_timer) !(state.sound_timer)
+  in
+  let print_usage () : unit =
+    print_string
+      ("usage:\n"
+       ^ "  ?\thelp\n"
+       ^ "  q\tquit\n"
+       ^ "  s\tstep\n"
+       ^ "  i\tshow state info\n"
+       ^ "  m d d\tprint memory in range\n"
+       ^ "  k\tinput key\n")
+  in
+  let print_next_instruction () : unit =
+    printf "next instruction: %s\n" (state |> fetch |> decode |> Instruction.show)
+  in
+  print_usage ();
+  print_state ();
+  let rec loop () =
+    let exception Break in
+    print_state ();
+    try
+      print_next_instruction ();
+      print_string "> ";
+      Out_channel.flush Out_channel.stdout;
+      let command = In_channel.input_line_exn In_channel.stdin in
+      if String.(command = "s")
+      then step state config
+      else if String.(command = "q")
+      then raise Break
+      else if String.(command = "?")
+      then print_usage ()
+      else if String.(command = "i")
+      then print_state ()
+      else if String.(command = "")
+      then step state config
+      else printf "command not implemented: '%s'" command;
+      loop ()
+    with
+    | Break -> ()
+  in
+  loop ()
+;;
+
+let run state config : unit =
   let open Raylib in
   init_window 800 600 "CHIP-8";
   set_target_fps 60;
   while not @@ window_should_close () do
-    run state;
-    draw state
+    step state config;
+    draw state config
   done;
   close_window ()
+;;
+
+(* TODO? Make config passable via cmd args? *)
+let config : config =
+  { pixel_scale = 8; pixel_white = Raylib.Color.raywhite; digits_begin = 0; debug = false }
+;;
+
+let () =
+  let input_path = parse_args () in
+  let state = setup () in
+  load_program state input_path;
+  match config.debug with
+  | true -> debug state config input_path
+  | false -> run state config
 ;;
