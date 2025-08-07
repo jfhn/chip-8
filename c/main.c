@@ -21,7 +21,7 @@ int main() {
   InitWindow(800, 600, "CHIP-8");
   SetTargetFPS(60);
 
-  // Layout: PC, PC, I, SP, V0, ..., VF, Stack
+  // Layout: PC low, PC high, I, SP, V0, ..., VF, Stack
   u8 memory[MEM_BYTES] = {0};
   u16 *pc = (u16* )memory;
   *pc = 0x0200;
@@ -49,7 +49,15 @@ int main() {
       *m = *pc;
       *pc = inst & 0x0FFF;
     } else if ((inst & 0xF000) == 0x3000) { // SE Vx, kk
-      // TODO
+      u8 vx = v[inst & 0x0F00];
+      u8 kk = inst & 0x00FF;
+      if (vx == kk) *pc += 2;
+      else *pc += 1;
+    } else if ((inst & 0xF000) == 0x4000) { // SNE Vx, kk
+      u8 vx = v[inst & 0x0F00];
+      u8 kk = inst & 0x00FF;
+      if (vx != kk) *pc += 2;
+      else *pc += 1;
     }
 
     BeginDrawing();
